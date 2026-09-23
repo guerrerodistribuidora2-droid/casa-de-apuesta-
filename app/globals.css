@@ -1,26 +1,81 @@
 @import "tailwindcss";
 
+/*
+  Tailwind v4: los tokens de diseño se declaran aquí, no en tailwind.config.js.
+  La interfaz está fijada en modo oscuro; la paleta parte de una tinta azulada.
+*/
+@theme {
+  /* Tinta: fondo, superficies y reglas */
+  --color-tinta-900: #0d131e;
+  --color-tinta-800: #141c2a;
+  --color-tinta-700: #1a2434;
+  --color-regla: #253147;
+
+  /* Texto */
+  --color-tiza: #e4e8f0;
+  --color-tiza-media: #a3b0c4;
+  --color-tiza-tenue: #7a8699;
+
+  /* Señal */
+  --color-ambar: #e0a03a;
+  --color-jade: #46a67f;
+  --color-oxido: #b8503c;
+
+  --font-display: var(--font-barlow-condensed), "Arial Narrow", sans-serif;
+  --font-sans: var(--font-source-sans), system-ui, sans-serif;
+}
+
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  color-scheme: dark;
 }
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+html {
+  background-color: var(--color-tinta-900);
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background-color: var(--color-tinta-900);
+  color: var(--color-tiza);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Las cifras se comparan en columna: deben ocupar siempre el mismo ancho. */
+.cifra {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum";
+}
+
+::selection {
+  background-color: var(--color-ambar);
+  color: var(--color-tinta-900);
+}
+
+:focus-visible {
+  outline: 2px solid var(--color-ambar);
+  outline-offset: 2px;
+}
+
+/* Indicador de retransmisión en directo. */
+@keyframes latido {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.3;
+  }
+}
+
+.latido {
+  animation: latido 2s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+  }
 }

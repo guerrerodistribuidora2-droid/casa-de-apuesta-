@@ -1,69 +1,113 @@
-import Image from "next/image";
+import Tablero from "@/components/Tablero";
+import { alcancePorFiltro, recomendaciones } from "@/lib/analista";
+import { obtenerPartidos } from "@/lib/apiConnector";
+import { fusionar, obtenerNoticias } from "@/lib/noticias";
 
-export default function Home() {
+/**
+ * Componente de servidor: pide los partidos al adaptador (que cae a los datos
+ * locales si la API no responde) y puntúa todas las lecturas durante el
+ * prerender. `Tablero` solo recibe el resultado y lo filtra en el navegador.
+ */
+export default async function Dashboard() {
+  const fuente = await obtenerPartidos();
+
+  // Las noticias se pegan encima de los partidos ya enriquecidos con cuotas.
+  const noticias = await obtenerNoticias(fuente.partidos);
+  const partidos = fusionar(fuente.partidos, noticias.porPartido);
+
+  const resumen = {
+    partidos: partidos.length,
+    lecturas: partidos.reduce((suma, p) => suma + p.lecturas.length, 0),
+  };
+  const recomendadas = recomendaciones(partidos);
+  const alcances = alcancePorFiltro(partidos);
+
   return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert h-5 w-[100px]"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the{" "}
-            <code className="rounded bg-black/[.06] px-1.5 py-0.5 font-mono text-[0.9em] dark:bg-white/[.08]">
-              page.tsx
-            </code>{" "}
-            file.
+    <div className="mx-auto w-full max-w-[1180px] px-4 sm:px-6">
+      <header className="flex flex-col gap-4 border-b border-regla py-7 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <h1 className="font-display text-3xl leading-none font-bold tracking-tight sm:text-4xl">
+            Casa de Apuesta
           </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
+          <p className="mt-2 max-w-[56ch] text-[15px] leading-relaxed text-tiza-media">
+            Cada mercado se juzga contando: cuántas veces se cumplió, cuándo, y qué
+            tan lejos queda la estimación del modelo de esa cuenta.
           </p>
         </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert h-[14px] w-4"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={14}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
-        </div>
+
+        <dl className="flex shrink-0 gap-6">
+          <Total etiqueta="Partidos" valor={resumen.partidos} />
+          <Total etiqueta="Lecturas" valor={resumen.lecturas} />
+          <Total etiqueta="Recomendadas" valor={recomendadas.length} destacar />
+        </dl>
+      </header>
+
+      <main className="pt-6 pb-16">
+        <Tablero
+          partidos={partidos}
+          recomendaciones={recomendadas}
+          alcances={alcances}
+        />
       </main>
+
+      <footer className="border-t border-regla py-6 text-[13px] leading-relaxed text-tiza-tenue">
+        <div className="flex flex-wrap items-baseline gap-x-5 gap-y-1">
+          <p className="cifra">
+            <span className="text-tiza-media">
+              {fuente.origen === "hibrido"
+                ? "Cuotas en directo"
+                : fuente.origen === "api"
+                  ? "The Odds API"
+                  : "Datos locales"}
+            </span>
+            {fuente.origen === "hibrido" &&
+              ` · ${fuente.lecturasEnriquecidas} ${fuente.lecturasEnriquecidas === 1 ? "mercado" : "mercados"} con precio real de ${fuente.partidosEmparejados} ${fuente.partidosEmparejados === 1 ? "encuentro" : "encuentros"}`}
+            {fuente.motivo ? ` · ${fuente.motivo}` : ""}
+          </p>
+          {fuente.peticionesRestantes !== undefined && (
+            <p className="cifra">{fuente.peticionesRestantes} peticiones restantes</p>
+          )}
+          {fuente.proveedores.map((p) => (
+            <p key={p.nombre} className="cifra">
+              {p.nombre}: {p.estado}
+            </p>
+          ))}
+          <p className="cifra">
+            Prensa: {noticias.diagnostico.feedsLeidos}/
+            {noticias.diagnostico.feedsTotales} feeds,{" "}
+            {noticias.diagnostico.titularesLeidos} titulares,{" "}
+            {noticias.diagnostico.contextosGenerados} factores
+          </p>
+        </div>
+        <p className="mt-2 max-w-[70ch]">
+          Datos simulados para maquetar la interfaz. Ninguna cifra corresponde a un
+          registro real y nada de lo que aparece aquí es una recomendación para
+          apostar.
+        </p>
+      </footer>
+    </div>
+  );
+}
+
+function Total({
+  etiqueta,
+  valor,
+  destacar = false,
+}: {
+  etiqueta: string;
+  valor: number;
+  destacar?: boolean;
+}) {
+  return (
+    <div>
+      <dt className="text-[12px] text-tiza-tenue">{etiqueta}</dt>
+      <dd
+        className={`cifra font-display text-[32px] leading-none font-semibold ${
+          destacar ? "text-ambar" : "text-tiza"
+        }`}
+      >
+        {valor}
+      </dd>
     </div>
   );
 }
