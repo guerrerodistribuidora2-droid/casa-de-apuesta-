@@ -1,7 +1,10 @@
+import { after } from "next/server";
 import Tablero from "@/components/Tablero";
+import { buscarDisciplina } from "@/data/mockData";
 import { alcancePorFiltro, recomendaciones } from "@/lib/analista";
 import { obtenerPartidos } from "@/lib/apiConnector";
 import { fusionar, obtenerNoticias } from "@/lib/noticias";
+import { registrarFactoresNoticia } from "@/lib/supabase";
 
 /**
  * Componente de servidor: pide los partidos al adaptador (que cae a los datos
@@ -14,6 +17,16 @@ export default async function Dashboard() {
   // Las noticias se pegan encima de los partidos ya enriquecidos con cuotas.
   const noticias = await obtenerNoticias(fuente.partidos);
   const partidos = fusionar(fuente.partidos, noticias.porPartido);
+
+  // Auditoría en Supabase de lo que detectó el clasificador de prensa. Se
+  // registra después de enviar la respuesta (`after`), así que nunca añade
+  // latencia al render ni bloquea la página si Supabase está lento o caído.
+  const factoresDetectados = [...noticias.porPartido.entries()].flatMap(
+    ([partidoId, contextos]) => contextos.map((contexto) => ({ partidoId, contexto })),
+  );
+  if (factoresDetectados.length > 0) {
+    after(() => registrarFactoresNoticia(factoresDetectados));
+  }
 
   const resumen = {
     partidos: partidos.length,
@@ -54,14 +67,10 @@ export default async function Dashboard() {
         <div className="flex flex-wrap items-baseline gap-x-5 gap-y-1">
           <p className="cifra">
             <span className="text-tiza-media">
-              {fuente.origen === "hibrido"
-                ? "Cuotas en directo"
-                : fuente.origen === "api"
-                  ? "The Odds API"
-                  : "Datos locales"}
+              {fuente.origen === "api" ? "Cartelera en vivo" : "Datos locales"}
             </span>
-            {fuente.origen === "hibrido" &&
-              ` · ${fuente.lecturasEnriquecidas} ${fuente.lecturasEnriquecidas === 1 ? "mercado" : "mercados"} con precio real de ${fuente.partidosEmparejados} ${fuente.partidosEmparejados === 1 ? "encuentro" : "encuentros"}`}
+            {fuente.origen === "api" &&
+              ` · ${fuente.partidosEnVivo} ${fuente.partidosEnVivo === 1 ? "partido real" : "partidos reales"}, ${fuente.lecturasEnriquecidas} ${fuente.lecturasEnriquecidas === 1 ? "mercado" : "mercados"} con cuota real`}
             {fuente.motivo ? ` · ${fuente.motivo}` : ""}
           </p>
           {fuente.peticionesRestantes !== undefined && (
@@ -79,10 +88,51 @@ export default async function Dashboard() {
             {noticias.diagnostico.contextosGenerados} factores
           </p>
         </div>
-        <p className="mt-2 max-w-[70ch]">
-          Datos simulados para maquetar la interfaz. Ninguna cifra corresponde a un
-          registro real y nada de lo que aparece aquí es una recomendación para
-          apostar.
+
+        {/* Fuente exacta por disciplina: "100% real" es una afirmación que se
+            puede auditar aquí, partido a partido, no solo de palabra. */}
+        <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1">
+          {fuente.porDisciplina.map((d) => (
+            <p key={d.disciplina} className="cifra">
+              {buscarDisciplina(d.disciplina).nombre}:{" "}
+              <span
+                className={
+                  d.fuente === "vivo"
+                    ? "text-jade"
+                    : d.fuente === "sin-cobertura"
+                      ? "text-tiza-tenue"
+                      : "text-ambar"
+                }
+              >
+                {d.fuente === "vivo"
+                  ? `en vivo (${d.eventos})`
+                  : d.fuente === "sin-cobertura"
+                    ? "sin cobertura de API"
+                    : `local${d.motivo ? ` — ${d.motivo}` : ""}`}
+              </span>
+            </p>
+          ))}
+        </div>
+
+        <p className="mt-2 max-w-[80ch]">
+          {fuente.origen === "api" ? (
+            <>
+              Los partidos marcados <span className="text-jade">en vivo</span> son reales:
+              equipos, fecha y cuota vienen de The Odds API. Ese precio real es lo único que
+              respalda la probabilidad — todavía no tienen historial de frecuencia propio ni
+              factores de árbitro o calendario medidos, así que el motor los trata sin
+              penalizarlos ni premiarlos por esa ausencia. Los marcados{" "}
+              <span className="text-ambar">local</span> son simulados, igual que antes: la
+              disciplina no tenía eventos disponibles en este momento. eSports no tiene
+              cobertura en esta API y siempre es simulado.
+            </>
+          ) : (
+            <>
+              Datos simulados para maquetar la interfaz. Ninguna cifra corresponde a un
+              registro real.
+            </>
+          )}{" "}
+          Nada de lo que aparece aquí es una recomendación para apostar.
         </p>
       </footer>
     </div>

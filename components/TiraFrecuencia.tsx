@@ -15,6 +15,20 @@ export default function TiraFrecuencia({
   const alturaBloque = alto === "alto" ? "h-7" : "h-4";
   const cumplidos = historial.filter(Boolean).length;
 
+  // Sin historial (partido real sin frecuencia propia todavía) la tira no
+  // debe colapsar a un hueco en blanco: es el elemento que más se repite en
+  // el tablero y un vacío ahí se lee como un error de carga, no como un dato
+  // ausente.
+  if (historial.length === 0) {
+    return (
+      <p
+        className={`${alturaBloque === "h-7" ? "text-[13px]" : "text-[12px]"} text-tiza-tenue`}
+      >
+        Sin historial propio todavía
+      </p>
+    );
+  }
+
   return (
     <div
       className="flex items-end gap-[3px]"

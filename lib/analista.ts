@@ -97,8 +97,15 @@ export function factoresDe(partido: Partido, lectura: Lectura): Factor[] {
     {
       nombre: "Respaldo histórico",
       peso: 0.25,
-      valor: normalizar(tasa, 45, 85),
-      detalle: `${lectura.frecuencia.exitos} de ${lectura.frecuencia.muestra} (${tasa.toFixed(0)}%)`,
+      // Sin muestra propia (partido real recién incorporado) el factor queda
+      // neutro: no hay frecuencia que lo respalde, pero tampoco que lo
+      // contradiga. Puntuarlo en 0 castigaría al partido por no tener aún
+      // historial, que no es lo mismo que tener un mal historial.
+      valor: lectura.frecuencia.muestra === 0 ? 0.5 : normalizar(tasa, 45, 85),
+      detalle:
+        lectura.frecuencia.muestra === 0
+          ? "Sin historial propio todavía"
+          : `${lectura.frecuencia.exitos} de ${lectura.frecuencia.muestra} (${tasa.toFixed(0)}%)`,
     },
     {
       nombre: "Convicción del modelo",
@@ -121,8 +128,11 @@ export function factoresDe(partido: Partido, lectura: Lectura): Factor[] {
     {
       nombre: "Solidez de la muestra",
       peso: 0.12,
-      valor: normalizar(lectura.frecuencia.muestra, 14, 30),
-      detalle: `${lectura.frecuencia.muestra} encuentros`,
+      valor: lectura.frecuencia.muestra === 0 ? 0.5 : normalizar(lectura.frecuencia.muestra, 14, 30),
+      detalle:
+        lectura.frecuencia.muestra === 0
+          ? "Sin muestra todavía"
+          : `${lectura.frecuencia.muestra} encuentros`,
     },
     {
       nombre: "Inercia reciente",

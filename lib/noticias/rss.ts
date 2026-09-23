@@ -17,8 +17,16 @@ export interface ItemFeed {
   medio: string;
 }
 
-/** Cuánto se cachea un feed. Los titulares no cambian cada segundo. */
-const REVALIDAR_S = 900;
+/**
+ * Cuánto se cachea un feed. Los titulares no cambian cada segundo, y además
+ * igualarlo al de `lib/apiConnector.ts` (1 hora) hace que el revalidate de
+ * toda la página sea ese mismo número sin ambigüedad — Next usa el menor de
+ * todos los `fetch` de la ruta para decidir cuándo la vuelve a generar, y con
+ * dos valores distintos el número que aparece en el build no deja claro con
+ * qué frecuencia se repiten las peticiones a la API de cuotas, que es la que
+ * de verdad tiene un presupuesto mensual que cuidar.
+ */
+const REVALIDAR_S = 3600;
 const TIEMPO_LIMITE_MS = 7000;
 
 const ENTIDADES: Record<string, string> = {

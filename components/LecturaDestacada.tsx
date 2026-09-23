@@ -95,8 +95,9 @@ export default function LecturaDestacada({
           <div className="mt-5">
             <TiraFrecuencia historial={principal.historial} alto="alto" />
             <p className="mt-2 cifra text-[13px] text-tiza-media">
-              Cumplido en {principal.frecuencia.exitos} de {principal.frecuencia.muestra} encuentros
-              analizados. Arriba, los últimos diez del más antiguo al más reciente.
+              {principal.frecuencia.muestra === 0
+                ? "Partido real sin historial propio todavía: la probabilidad viene del mercado."
+                : `Cumplido en ${principal.frecuencia.exitos} de ${principal.frecuencia.muestra} encuentros analizados. Arriba, los últimos diez del más antiguo al más reciente.`}
             </p>
           </div>
 

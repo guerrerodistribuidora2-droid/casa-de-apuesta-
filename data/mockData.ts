@@ -1499,8 +1499,15 @@ export function tasaDeAcierto(lectura: Lectura): number {
 /**
  * Distancia entre lo que estima el modelo y lo que dice el historial.
  * Positiva: el modelo va por delante de la frecuencia observada.
+ *
+ * Sin muestra (un partido real recién incorporado, todavía sin historial
+ * propio) no hay nada que contradiga al modelo: la divergencia es 0, no la
+ * probabilidad entera. Devolver "probabilidad - 0" trataría la ausencia de
+ * datos como el peor desacuerdo posible, cuando en realidad es la ausencia
+ * de una opinión con la que discrepar.
  */
 export function divergencia(lectura: Lectura): number {
+  if (lectura.frecuencia.muestra === 0) return 0;
   return lectura.probabilidad - tasaDeAcierto(lectura);
 }
 

@@ -80,30 +80,82 @@ las presenta en la cabecera del dashboard.
   `razonar()` a partir de frecuencia, racha, forma de los competidores, factores
   contextuales y divergencia. Nunca se escribe a mano ni se guarda en los datos.
 
-## Adaptador de API (lib/apiConnector.ts)
+## Fuente de datos: cartelera en vivo (lib/apiConnector.ts)
 `app/page.tsx` pide los partidos a `obtenerPartidos()`. Variables de entorno y
 pasos de despliegue: ver `DESPLIEGUE.md`.
 
-- **Esta capa nunca lanza.** Sin clave, sin red, con la cuota agotada o con una
-  respuesta rara, devuelve los datos locales y explica el motivo. La página
-  siempre recibe un `Partido[]` válido.
-- **Enriquece, no sustituye.** The Odds API da encuentros y precios, pero no el
-  historial de cumplimiento de cada mercado, y todo el análisis se apoya en
-  frecuencias. Cambiar los partidos por los de la API dejaría al motor sin
-  materia prima. Lo que sí incorpora es la **cuota real**, que es lo que permite
-  calcular ventaja de verdad en lugar de operar contra una cuota justa derivada
-  de nuestra propia estimación.
-- **El emparejado es por pareja, no por equipo suelto.** "Manchester United" y
-  "Manchester City" comparten token; que coincidan los dos lados a la vez es
-  improbable. Se exige 0.6 de media.
-- **Se toma el mejor precio entre todas las casas**, no la media: es la cuota
-  que un apostador podría tomar realmente, y la única que hace honesto el
-  cálculo de ventaja.
-- **Las claves de deporte de tenis rotan con el torneo.** Se descubren en la
-  lista de deportes, que no consume cuota. Fijarlas a mano se rompe solo
-  (`tennis_atp_aus_open_singles` ya no existe).
-- El pie del tablero muestra origen, mercados con precio real, peticiones
-  restantes y el estado de cada proveedor: un fallo silencioso debe verse.
+**Cambio de arquitectura importante:** hasta una versión anterior, la cartelera
+era la lista simulada de `data/mockData.ts` y la API solo le pegaba una cuota
+real cuando el par de equipos coincidía por casualidad con el calendario real
+(en la práctica, ~1 de cada 19 partidos). Ahora la cartelera **se construye
+directamente** desde eventos reales de la API, disciplina por disciplina.
+`data/mockData.ts` pasó de ser la fuente principal a ser la **reserva**: solo
+se usa cuando una disciplina concreta no se pudo obtener en vivo.
+
+- **Esta capa nunca lanza**, y ahora degrada por disciplina, no en bloque: si
+  NBA falla pero Premier League responde, NBA cae a su reserva local y Premier
+  League sigue en vivo. Cada disciplina lleva su propio `EstadoDisciplina`
+  (`vivo` / `local` / `sin-cobertura`), visible en el pie del tablero.
+- **Cobertura real ahora mismo:** Liga MX, Premier League, Champions League,
+  NBA, UFC y tenis se construyen en vivo — las seis tienen cobertura confirmada
+  en The Odds API (probado con datos reales: 138 partidos, 703 mercados en una
+  sola carga). **LoL y Valorant no tienen cobertura en esta API** — no es un
+  hueco de la integración, el proveedor simplemente no cubre eSports — y
+  siguen sirviéndose desde local, marcados `sin-cobertura` sin más.
+- **Se probó `RIOT_API_KEY` para cerrar ese hueco y no sirve, verificado con la
+  clave real:** `TOURNAMENT-V5` y `VAL-MATCH-V1` devuelven `403 Forbidden`
+  (piden aprobación de producto que una clave personal no trae), y aunque la
+  tuvieran, ninguno de los dos da un calendario de partidos profesionales —
+  uno es para lobbies de torneo propios, el otro necesita ya conocer la cuenta
+  de cada jugador. La clave queda guardada en `.env.local` sin conectar a
+  ningún adaptador. Detalle completo en `DESPLIEGUE.md`.
+- **Qué es real y qué no lo es en un partido construido así:**
+  - Equipos, fecha, hora, mercados y cuota: reales, tal cual la API.
+  - Probabilidad: derivada de la cuota real (`probabilidadImplicita`), no una
+    estimación propia.
+  - `frecuencia`/`historial`/`forma`: **honestamente vacíos**
+    (`{exitos:0,muestra:0}`, `[]`). The Odds API no da qué pasó en los últimos
+    diez encuentros ni la racha de resultados; no se inventa.
+  - Contexto (árbitro, calendario, lesiones, táctica): **nunca se fabrica**
+    para un partido real. Fabricar "el árbitro promedia 5.8 tarjetas" sobre un
+    Arsenal-Leeds de verdad sería peor que el mock: parecería auténtico sin
+    serlo. El único contexto posible en un partido real es el que detecta
+    `lib/noticias/` a partir de prensa genuina (`origen: "noticia"`).
+- **El motor tenía que aprender a no castigar la ausencia de historial.**
+  `divergencia()` devolvía `probabilidad - 0` cuando `muestra=0`, lo que
+  `fuerza()` leía como el peor desacuerdo posible: **todo partido real
+  quedaba clasificado `débil` y `recomendaciones()` lo descartaba antes de
+  puntuarlo.** Se corrigió en tres sitios — `divergencia()` en
+  `data/mockData.ts` devuelve 0 sin muestra; "Respaldo histórico" y "Solidez
+  de la muestra" en `lib/analista.ts` quedan neutros (0.5) en vez de 0. Antes
+  del arreglo un partido real nunca podía llegar al IA Match Analyzer; después,
+  una lectura real típica puntúa ~58 (por encima del umbral de 55).
+- **La interfaz no debe colapsar en silencio ante un array vacío.**
+  `TiraForma`/`TiraFrecuencia` son "el elemento central del tablero" (su propio
+  comentario) — con `forma`/`historial` vacíos, ahora muestran un texto
+  explícito ("Sin historial propio todavía") en vez de un hueco en blanco que
+  se leería como un fallo de carga.
+- **Se toma el mejor precio entre todas las casas** de cada evento, no la
+  media: es la cuota que un apostador podría tomar de verdad, y la de-vigging
+  (`probabilidadImplicita`) usa los precios de ESA misma casa, nunca mezclados
+  con los de otra.
+- **Las claves de deporte de tenis rotan con el torneo y pueden ser varias a
+  la vez** (un ATP y un WTA simultáneos). Se resuelven contra la lista de
+  deportes, que no consume cuota, tomando TODOS los grupos activos, no solo el
+  primero.
+- **Mercados: solo `h2h` y `totals`.** El plan usado no admite mercados
+  adicionales (`btts` da `422 INVALID_MARKET`); UFC y tenis, de hecho, solo
+  ofrecen `h2h` en este plan — no hay mercado de "más/menos asaltos" ni
+  "más/menos games" que se pueda pedir, así que no se simula.
+- **Presupuesto de cuota — esto importa de verdad.** El plan gratuito es
+  500 peticiones **al mes**, no al día. Con 6 disciplinas y caché de 600 s
+  (10 min), tráfico continuo agotaría el mes entero en menos de una hora.
+  `REVALIDAR_S` está en 3600 s (1 hora) por esa cuenta, documentada en el
+  propio archivo. "En vivo" en este proyecto significa "tan reciente como la
+  última hora", no "al segundo" — subir la frecuencia exige un plan de pago.
+- El pie del tablero muestra, **por disciplina**, si está en vivo (con cuántos
+  eventos), si cayó a local (y por qué) o si no tiene cobertura — la
+  afirmación "100% real" se puede auditar ahí, no solo de palabra.
 
 ## Módulo de Noticias (lib/noticias/)
 Lee feeds RSS públicos, clasifica titulares y autocompleta factores contextuales.
@@ -131,19 +183,38 @@ Lee feeds RSS públicos, clasifica titulares y autocompleta factores contextuale
 
 ## Persistencia del Gestor de Banca (lib/supabase.ts + app/api/banca)
 `localStorage` es la copia inmediata y Supabase el respaldo que sobrevive a
-cambiar de navegador.
+cambiar de navegador. Esquema y SQL exacto en `DESPLIEGUE.md`.
 
+- **Tres tablas normalizadas**, no un blob JSONB: `bankroll_sessions` (una fila
+  por ciclo, abierto o cerrado), `bets` (una fila por apuesta, ligada a su
+  ciclo) y `news_factors` (auditoría de lo que detectó el clasificador de
+  prensa). El historial queda consultable con SQL corriente en vez de exigir
+  traer un blob entero y filtrar en el cliente.
 - **La clave anónima nunca sale del servidor.** Por eso las variables no llevan
   `NEXT_PUBLIC_` y todo pasa por `app/api/banca`. Sin autenticación de usuarios,
-  una clave anónima en el navegador dejaría la tabla abierta.
+  una clave anónima en el navegador dejaría las tablas abiertas.
 - **Nunca lanza.** Si Supabase no está configurado o falla, la ruta responde 200
   con `ok:false` y el gestor sigue con `localStorage`. No hay estado en el que
   el panel se rompa por un problema de red.
 - **El remoto solo se adopta si aquí no hay nada.** Lo que el usuario acaba de
   hacer en este navegador manda sobre una copia antigua del servidor.
+- **Escritura en dos peticiones como mucho.** `guardarBanca()` hace un upsert
+  masivo a `bankroll_sessions` (el ciclo abierto más cada ciclo del historial —
+  así el que se acaba de cerrar queda marcado `cerrado` aunque el registro
+  anterior dijera `abierto`) y un upsert masivo a `bets` con las apuestas del
+  ciclo abierto. Las apuestas de ciclos ya cerrados no se reenvían: se
+  guardaron cuando ese ciclo todavía estaba abierto.
+- **`apuesta_id` es la clave del upsert de `bets`**: el mismo
+  `"<partidoId>|<mercado>"` que usa `useBanca` en el navegador, así que
+  actualizar el estado de una apuesta (pendiente → ganada) hace `UPDATE`, no
+  un duplicado.
+- **`news_factors` se escribe con `after()`**, no en el flujo de render de
+  `app/page.tsx`. Nunca añade latencia a la página y sobrevive al final de la
+  respuesta en Vercel (a diferencia de una promesa suelta sin `await`, que ahí
+  puede cortarse a medias).
 - Se habla con PostgREST por `fetch` en vez de añadir `@supabase/supabase-js`:
-  solo hay que leer y escribir una fila. Migrar al cliente oficial es directo si
-  hiciera falta realtime o auth.
+  el proyecto sigue sin dependencias de runtime más allá de Next y React.
+  Migrar al cliente oficial es directo si hiciera falta realtime o auth.
 
 ## Módulo In-Play (data/enVivo.ts + lib/enVivo.ts)
 Sección de partidos en curso, encima del IA Match Analyzer y sujeta al mismo

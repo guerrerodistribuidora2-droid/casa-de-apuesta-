@@ -10,6 +10,13 @@ const tono: Record<Resultado, string> = {
 export default function TiraForma({ forma }: { forma: Resultado[] }) {
   const ganados = forma.filter((r) => r === "ganó").length;
 
+  // Un partido recién incorporado desde una fuente en vivo no trae todavía su
+  // racha de resultados. Una tira vacía se leería como un fallo visual, no
+  // como "sin datos": mejor decirlo.
+  if (forma.length === 0) {
+    return <span className="text-[11px] text-tiza-tenue">Sin racha registrada</span>;
+  }
+
   return (
     <div
       className="flex items-center gap-[3px]"

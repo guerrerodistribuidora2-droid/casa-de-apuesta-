@@ -12,6 +12,11 @@ import TiraForma from "./TiraForma";
 import TiraFrecuencia from "./TiraFrecuencia";
 
 function describirRacha({ largo, cumplida }: ReturnType<typeof rachaActual>): string {
+  // largo=0 con cumplida=false es ambiguo por construcción: puede ser "el
+  // historial está vacío" o, en teoría, "0 veces seguidas sin cumplirse"
+  // (que no existe como estado real). Se resuelve a favor de lo honesto:
+  // decir que no hay historial, no inventar una racha de longitud cero.
+  if (largo === 0) return "Sin historial propio todavía";
   if (cumplida) {
     return largo === 1 ? "Se cumplió la última vez" : `Se cumplió las últimas ${largo} veces`;
   }
@@ -66,11 +71,19 @@ export default function TarjetaPartido({ partido }: { partido: Partido }) {
           <TiraFrecuencia historial={lectura.historial} />
           <div className="mt-1.5 flex items-baseline justify-between gap-3 text-[13px]">
             <p className="cifra text-tiza-media">
-              {lectura.frecuencia.exitos} aciertos en {lectura.frecuencia.muestra}
+              {lectura.frecuencia.muestra === 0
+                ? "Probabilidad de mercado"
+                : `${lectura.frecuencia.exitos} aciertos en ${lectura.frecuencia.muestra}`}
             </p>
-            <p className="cifra text-tiza-tenue">
-              Cuota justa {cuotaJusta(lectura).toFixed(2)}
-            </p>
+            {lectura.cuotaMercado ? (
+              <p className="cifra text-jade" title={`Mejor precio en ${lectura.casaMercado}`}>
+                Cuota real {lectura.cuotaMercado.toFixed(2)}
+              </p>
+            ) : (
+              <p className="cifra text-tiza-tenue">
+                Cuota justa {cuotaJusta(lectura).toFixed(2)}
+              </p>
+            )}
           </div>
         </div>
 

@@ -29,7 +29,7 @@ obligatoria.
 | **In-Play** | Reevalúa mercados en directo proyectando el ritmo sobre la línea, con panel de notas tácticas y alertas de línea rota |
 | **Noticias** | Lee feeds RSS públicos, filtra por palabras clave y autocompleta factores contextuales |
 | **Gestor de banca** | Presupuesto, stake por confianza, seguimiento de apuestas y ciclos de retiro |
-| **Adaptador de cuotas** | Incorpora precios reales de The Odds API, con degradación transparente a datos locales |
+| **Cartelera en vivo** | Liga MX, Premier, Champions, NBA, UFC y tenis se construyen directamente desde The Odds API; eSports y cualquier fallo puntual caen a datos locales, marcados como tales |
 
 ## Principios del proyecto
 
@@ -64,5 +64,9 @@ npx tsc --noEmit # TypeScript estricto
 
 ## Aviso
 
-Los datos de partidos son **simulados** y sirven para maquetar y probar la
-plataforma. Nada de lo que muestra es una recomendación para apostar.
+Con `ODDS_API_KEY` configurada, los partidos de fútbol, NBA, UFC y tenis son
+**reales** (equipos, fecha, cuota) — el pie del tablero dice exactamente qué
+disciplina está en vivo y cuál no. eSports no tiene cobertura en el proveedor
+usado y, junto con cualquier disciplina cuya petición falle en ese momento,
+sigue sirviéndose desde datos simulados, siempre marcados como tales. En
+ningún caso nada de lo que aparece aquí es una recomendación para apostar.
