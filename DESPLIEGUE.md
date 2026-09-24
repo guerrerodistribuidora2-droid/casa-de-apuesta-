@@ -134,30 +134,55 @@ el ciclo solo cambia el estado de la sesión, no las apuestas que ya tiene.
 ## 3. The Odds API
 
 Plan gratuito: **500 peticiones al mes** (no al día — la aritmética de abajo
-importa). Desde esta versión, **la cartelera se construye en vivo** desde la
-API para Liga MX, Premier League, Champions League, NBA, UFC y tenis; solo
-LoL/Valorant (sin cobertura de eSports en este proveedor) y cualquier
-disciplina cuya petición falle ese momento siguen viniendo de
-`data/mockData.ts`.
+importa). **La cartelera se construye en vivo** desde la API para Liga MX,
+Premier League, Champions League, NBA, UFC y tenis, con estado real (no
+iniciado / en vivo / finalizado) y marcador vía el endpoint `/scores`.
+**No hay ninguna reserva de datos simulados**: LoL/Valorant (sin cobertura de
+eSports en este proveedor) y cualquier disciplina cuya petición falle o no
+tenga eventos ese momento simplemente no aparecen en el tablero — el pie de
+página explica el motivo, disciplina por disciplina.
 
-- **Presupuesto real:** con 6 disciplinas y una petición cada una, cada ciclo
-  de caché cuesta 6 peticiones. A 600 s (10 min) de caché, tráfico continuo
-  agotaría el mes entero en menos de una hora. Por eso `REVALIDAR_S` en
-  `lib/apiConnector.ts` está en **3600 s (1 hora)**: "en vivo" aquí significa
-  "tan reciente como la última hora", no "al segundo". Si necesitas más
-  frecuencia, hace falta un plan de pago de The Odds API.
+- **Presupuesto real, y ahora el doble de exigente que antes:** cada
+  disciplina cuesta **dos** peticiones por ciclo de caché (`/odds` para
+  cuotas + `/scores` para estado y marcador), no una. Con 6 disciplinas, cada
+  ciclo cuesta 12 peticiones. A 3600 s (1 h) de caché, tráfico continuo son
+  ~144 ciclos/día × 12 ≈ 1728 peticiones/día — la cuota mensual entera en
+  menos de cuatro horas de tráfico continuo. `REVALIDAR_S` en
+  `lib/apiConnector.ts` sigue en 3600 s, pero con dos llamadas por disciplina
+  ese número por sí solo ya no estira 500 peticiones/mes con tráfico
+  constante: si eso importa, hace falta o bien un plan de pago de The Odds
+  API, o subir `REVALIDAR_S`, o dejar `/scores` como una mejora opcional que
+  se pueda desactivar.
 - Una llamada aparte a la lista de deportes (para resolver el torneo de tenis
   vigente) **no consume cuota**.
-- Si una disciplina falla (red, 429, respuesta rara) esa disciplina cae a su
-  reserva local; las demás siguen en vivo. No es todo-o-nada.
-- El consumo real y el desglose por disciplina (en vivo / local / sin
+- Si una disciplina falla (red, sin eventos, cuota agotada) esa disciplina se
+  queda sin partidos; las demás siguen en vivo. No es todo-o-nada, pero
+  tampoco se completa con nada inventado.
+- El consumo real y el desglose por disciplina (en vivo / sin datos / sin
   cobertura, con cuántos eventos) se ven en el pie del tablero.
-- **Durante el desarrollo de esta función se consumieron ~480 de 500
-  peticiones del mes en pruebas manuales** (exploración con `curl` fuera de la
-  aplicación, más recargas del servidor de desarrollo, que no comparte el
-  caché de 10 minutos entre recargas como sí hace producción). Si el contador
-  aparece bajo al desplegar, es por eso, no por un fallo — se repone con el
-  ciclo de facturación del plan.
+- **Esta cuenta llegó a 0/500 peticiones del mes durante el desarrollo de
+  esta función** (`x-requests-used: 500`, `error_code: OUT_OF_USAGE_CREDITS`
+  — un 401, no un 429; `lib/apiConnector.ts` distingue ambos casos en vez de
+  decir "clave inválida" cuando en realidad es cuota agotada). Mientras dure,
+  **el tablero se ve legítimamente vacío en producción** para las 6
+  disciplinas con cobertura, hasta que se repone con el ciclo de facturación
+  del plan o se sube a uno de pago. No es un fallo de esta integración: es el
+  comportamiento correcto — real y sin partidos inventados — cuando no queda
+  cuota.
+
+## 3.1 Módulo In-Play (`lib/enVivo.ts`, `components/SeccionEnVivo.tsx`)
+
+Este módulo ya no se muestra en el tablero (se quitó de `Tablero.tsx`), pero
+el código sigue en el repositorio. Motivo: **todo su contenido era un guion
+de eventos escrito a mano** (minuto a minuto: goles, tarjetas, córners) sobre
+cuatro partidos ficticios — no una simulación que se pudiera sustituir por
+datos reales con un adaptador, porque **The Odds API no ofrece eventos en
+vivo** (goles/tarjetas por minuto), solo cuotas pre-partido y, aparte,
+marcador y estado vía `/scores`. Conectar este módulo a datos reales de
+verdad exigiría un proveedor de eventos en vivo distinto (típicamente de
+pago). Se dejó el código en vez de borrarlo por si se decide reconstruir una
+versión más simple (marcador y reloj reales, sin el guion de eventos) o
+contratar ese proveedor más adelante.
 
 ## 4. Feeds de noticias
 

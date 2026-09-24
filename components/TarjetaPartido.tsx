@@ -45,17 +45,34 @@ export default function TarjetaPartido({
     >
       <div className="flex items-baseline justify-between gap-3 px-4 pt-3">
         <p className="truncate text-[13px] text-tiza-tenue">{partido.torneo}</p>
-        <p className="cifra shrink-0 font-display text-[15px] text-tiza-media">
-          {partido.cuando} {partido.hora}
-        </p>
+        {partido.estado === "en_vivo" ? (
+          <p className="flex shrink-0 items-center gap-1.5 font-display text-[15px] text-jade">
+            <span className="latido h-2 w-2 rounded-[1px] bg-jade" aria-hidden="true" />
+            En vivo
+          </p>
+        ) : partido.estado === "finalizado" ? (
+          <p className="cifra shrink-0 font-display text-[15px] text-tiza-tenue">Finalizado</p>
+        ) : (
+          <p className="cifra shrink-0 font-display text-[15px] text-tiza-media">
+            {partido.cuando} {partido.hora}
+          </p>
+        )}
       </div>
 
       <div className="space-y-1 px-4 pt-2">
-        {[partido.local, partido.visitante].map((competidor) => (
+        {[
+          { competidor: partido.local, marcador: partido.marcadorReal?.local },
+          { competidor: partido.visitante, marcador: partido.marcadorReal?.visitante },
+        ].map(({ competidor, marcador }) => (
           <div key={competidor.clave} className="flex items-center gap-3">
             <h3 className="flex-1 truncate font-display text-[22px] leading-tight font-semibold">
               {competidor.nombre}
             </h3>
+            {marcador !== undefined && (
+              <span className="cifra font-display text-[22px] leading-tight font-semibold text-tiza">
+                {marcador}
+              </span>
+            )}
             <TiraForma forma={competidor.forma} />
           </div>
         ))}

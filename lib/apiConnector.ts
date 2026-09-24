@@ -1,40 +1,43 @@
 /**
  * Fuente de datos: cartelera real desde The Odds API.
  *
- * Cambio de arquitectura respecto a versiones anteriores de este archivo: antes
- * la cartelera era la lista simulada de `data/mockData.ts` y la API solo le
- * "pegaba" una cuota real cuando por casualidad el par de equipos coincidía con
- * el calendario de verdad (en la práctica, 1 de cada ~19 partidos). Ahora la
- * cartelera **se construye directamente** a partir de los eventos reales de la
- * API para cada disciplina con cobertura. Los datos simulados quedan como lo
- * que su nombre indica: una reserva, usada solo cuando una disciplina concreta
- * no se puede obtener en vivo (sin clave, sin red, sin eventos, error de la
- * API), y siempre marcada como tal.
+ * A diferencia de versiones anteriores de este archivo, aquí **no existe
+ * ninguna reserva local ni dato simulado**: si una disciplina no se puede
+ * traer en vivo (sin clave, sin red, sin eventos, error de la API, o
+ * simplemente sin cobertura en este proveedor), esa disciplina se queda
+ * fuera de la cartelera — no se completa con nada inventado. `Tablero` ya
+ * oculta cualquier sección sin partidos, así que el tablero puede quedarse
+ * legítimamente vacío si la API no responde; eso se documenta en el pie de
+ * página (`porDisciplina`), nunca se disimula con datos de relleno.
  *
  * ## Qué es real y qué no lo es en un partido construido así
  *
  * - **Equipos, fecha, hora, mercados y cuota: reales**, tal cual los da la API.
  * - **Probabilidad: derivada de la cuota real**, descontando el margen de la
  *   casa (`probabilidadImplicita`). No es una estimación propia.
+ * - **Estado (no iniciado / en vivo / finalizado) y marcador real:**
+ *   resueltos aparte, contra el endpoint `/scores` de la misma API — ver
+ *   `obtenerEstados()`. Si esa petición falla, el partido se construye igual
+ *   pero sin `estado`: no se asume "no iniciado" a ciegas.
  * - **Frecuencia histórica del mercado (`frecuencia`/`historial`): no existe.**
  *   The Odds API da encuentros y precios, no qué pasó en los últimos diez. Se
  *   guarda honestamente vacía (`{exitos:0, muestra:0}`, `[]`) en vez de
- *   rellenarla con algo inventado; `lib/analista.ts` y `data/mockData.ts` saben
- *   tratar una muestra vacía como neutra, no como una mala señal.
+ *   rellenarla con algo inventado; `lib/analista.ts` sabe tratar una muestra
+ *   vacía como neutra, no como una mala señal.
  * - **Forma de los competidores (últimos 5 resultados): no existe**, por la
  *   misma razón. Se deja `forma: []`.
  * - **Factores de contexto (árbitro, calendario, lesiones, táctica): no se
- *   inventan.** Fabricar "el árbitro promedia 5.8 tarjetas" sobre un partido
- *   real sería peor que un dato simulado: parecería verídico sin serlo. El
- *   único contexto que puede llevar un partido real es el que detecta
- *   `lib/noticias/` a partir de prensa genuina, marcado `origen: "noticia"`.
+ *   inventan.** El único contexto que puede llevar un partido real es el que
+ *   detecta `lib/noticias/` a partir de prensa genuina (`origen: "noticia"`)
+ *   o el que resuelve `lib/pitchapi.ts` contra un enfrentamiento ya jugado
+ *   (etiquetado como histórico, nunca como el partido de hoy).
  *
  * ## Cobertura por disciplina
  *
  * Fútbol (Liga MX, Premier, Champions), NBA, UFC y tenis tienen cobertura en
- * The Odds API y se construyen en vivo. **LoL y Valorant no la tienen** — esta
- * API no cubre eSports, no es un hueco de esta integración — y siguen
- * sirviéndose desde `data/mockData.ts`, marcados como tales.
+ * The Odds API. **LoL y Valorant no la tienen** — esta API no cubre eSports,
+ * no es un hueco de esta integración — así que esas dos disciplinas nunca
+ * aparecen en el tablero hasta que exista un proveedor real para ellas.
  *
  * ## Mercados disponibles
  *
@@ -45,7 +48,6 @@
 
 import {
   disciplinas,
-  partidos as partidosLocales,
   type DisciplinaId,
   type FamiliaMercado,
   type Lectura,
@@ -53,7 +55,7 @@ import {
   type SentidoMercado,
 } from "@/data/mockData";
 
-export type Origen = "api" | "local";
+export type Origen = "api" | "sin-datos";
 
 export interface EstadoProveedor {
   nombre: string;
@@ -64,7 +66,8 @@ export interface EstadoProveedor {
 /** Cómo se resolvió cada disciplina, para poder mostrarlo partido a partido. */
 export interface EstadoDisciplina {
   disciplina: DisciplinaId;
-  fuente: "vivo" | "local" | "sin-cobertura";
+  /** "sin-datos": tiene cobertura en principio, pero no se pudo traer nada esta vez. */
+  fuente: "vivo" | "sin-datos" | "sin-cobertura";
   eventos?: number;
   motivo?: string;
 }
@@ -76,7 +79,7 @@ export interface ResultadoDatos {
   peticionesRestantes?: number;
   /** Cuántas lecturas llevan cuota real de mercado (todas las "vivo" la llevan). */
   lecturasEnriquecidas: number;
-  /** Cuántos partidos se construyeron en vivo, no desde la reserva local. */
+  /** Cuántos partidos se construyeron en vivo. Con esta arquitectura son todos los que hay. */
   partidosEnVivo: number;
   proveedores: EstadoProveedor[];
   porDisciplina: EstadoDisciplina[];
@@ -88,25 +91,26 @@ const TIEMPO_LIMITE_MS = 6000;
 /**
  * Cuánto se cachea cada disciplina, en segundos.
  *
- * El cálculo que fija este número: se hace una petición por disciplina con
- * cobertura (6 ahora mismo) cada vez que el caché de Next expira y llega una
- * visita. Con tráfico continuo, eso es como mucho 86 400/REVALIDAR_S ciclos al
- * día. El plan gratuito da 500 peticiones **al mes**, no al día — a 600 s
- * (10 min) serían ~144 ciclos/día × 6 = 864 peticiones/día, la cuota mensual
- * entera en menos de una hora de tráfico continuo. Con 3600 s (1 h) baja a
- * ~144 peticiones/día, unas 4300/mes: sigue por encima del límite si hay
- * tráfico constante, pero deja margen real para un uso normal (visitas
- * intermitentes, no una visita nueva cada hora exacta del mes entero).
+ * El cálculo que fija este número: por cada disciplina con cobertura (6 ahora
+ * mismo) se hace UNA petición de cuotas Y UNA petición de estado/marcador
+ * (`/scores`) cada vez que el caché de Next expira y llega una visita — el
+ * doble de peticiones que cuando este archivo solo traía cuotas. Con tráfico
+ * continuo, eso es como mucho 86 400/REVALIDAR_S ciclos al día. El plan
+ * gratuito da 500 peticiones **al mes**, no al día: a 3600 s (1 h) son
+ * ~144 ciclos/día × 6 disciplinas × 2 peticiones ≈ 1728 peticiones/día, la
+ * cuota mensual entera en menos de cuatro horas de tráfico continuo.
  *
- * Esto es una limitación real del plan gratuito, no un descuido: "en vivo" en
- * este proyecto significa "tan reciente como la última hora", no "al segundo".
- * Subir la frecuencia exige un plan de pago de The Odds API.
+ * Esto ya no es solo una limitación teórica: en la práctica esta cuenta
+ * llegó a 0/500 peticiones restantes durante el desarrollo. Subir la
+ * frecuencia, o mantenerla con tráfico constante, exige un plan de pago de
+ * The Odds API — REVALIDAR_S por sí solo no alcanza para estirar 500
+ * peticiones/mes con dos llamadas por disciplina y ciclo.
  */
 const REVALIDAR_S = 3600;
 /** Mercados soportados por el plan usado. "btts" y similares dan 422. */
 const MERCADOS = "h2h,totals";
 
-/** Disciplinas con cobertura real en The Odds API. El resto va por local. */
+/** Disciplinas con cobertura real en The Odds API. El resto nunca se muestra. */
 const DISCIPLINAS_CON_API: DisciplinaId[] = [
   "liga-mx",
   "premier",
@@ -163,6 +167,19 @@ interface DeporteAPI {
   key: string;
   group: string;
   active: boolean;
+}
+
+/** Forma del endpoint /scores: mismo id de evento que /odds para el mismo partido. */
+interface EstadoAPI {
+  id: string;
+  commence_time: string;
+  completed: boolean;
+  scores: { name: string; score: string }[] | null;
+}
+
+export interface EstadoPartidoReal {
+  estado: "no_iniciado" | "en_vivo" | "finalizado";
+  scores?: { name: string; score: string }[];
 }
 
 /* Utilidades ------------------------------------------------------------------ */
@@ -269,7 +286,11 @@ function nombrarMercado(
  * un apostador podría tomar de verdad — y deriva la probabilidad de esa misma
  * casa, para no mezclar el precio de una con la probabilidad de otra.
  */
-export function aPartido(evento: EventoAPI, disciplina: DisciplinaId): Partido | null {
+export function aPartido(
+  evento: EventoAPI,
+  disciplina: DisciplinaId,
+  estadoReal?: EstadoPartidoReal,
+): Partido | null {
   const { cuando, hora } = formatearFecha(evento.commence_time);
   const porMercado = new Map<string, Lectura>();
 
@@ -305,12 +326,23 @@ export function aPartido(evento: EventoAPI, disciplina: DisciplinaId): Partido |
 
   if (porMercado.size === 0) return null;
 
+  let marcadorReal: { local: number; visitante: number } | undefined;
+  if (estadoReal?.scores) {
+    const local = estadoReal.scores.find((s) => s.name === evento.home_team);
+    const visitante = estadoReal.scores.find((s) => s.name === evento.away_team);
+    if (local && visitante) {
+      marcadorReal = { local: Number(local.score), visitante: Number(visitante.score) };
+    }
+  }
+
   return {
     id: evento.id,
     disciplina,
     torneo: evento.sport_title,
     cuando,
     hora,
+    estado: estadoReal?.estado,
+    marcadorReal,
     local: { nombre: evento.home_team, clave: claveCorta(evento.home_team), forma: [] },
     visitante: { nombre: evento.away_team, clave: claveCorta(evento.away_team), forma: [] },
     lecturas: [...porMercado.values()],
@@ -330,13 +362,50 @@ async function pedir<T>(ruta: string): Promise<{ datos: T; restantes?: number }>
     next: { revalidate: REVALIDAR_S },
   });
 
-  if (respuesta.status === 401) throw new ErrorAPI("La clave de The Odds API no es válida");
+  if (respuesta.status === 401) {
+    // The Odds API también usa 401 para "se acabó la cuota del plan"
+    // (error_code OUT_OF_USAGE_CREDITS), no solo para una clave inválida —
+    // se distingue leyendo el cuerpo en vez de asumir lo primero que se nos
+    // ocurra, porque decir "clave inválida" cuando en realidad es cuota
+    // agotada llevaría a rotar una clave que no tiene nada malo.
+    const cuerpo = await respuesta.json().catch(() => null);
+    if (cuerpo?.error_code === "OUT_OF_USAGE_CREDITS") {
+      throw new ErrorAPI("Se agotó la cuota mensual del plan de The Odds API");
+    }
+    throw new ErrorAPI("La clave de The Odds API no es válida");
+  }
   if (respuesta.status === 429) throw new ErrorAPI("Se agotaron las peticiones del plan");
   if (!respuesta.ok) throw new ErrorAPI(`The Odds API respondió ${respuesta.status}`);
 
   const restantes = Number(respuesta.headers.get("x-requests-remaining"));
   const datos = (await respuesta.json()) as T;
   return { datos, restantes: Number.isFinite(restantes) ? restantes : undefined };
+}
+
+/**
+ * Estado real (no iniciado / en vivo / finalizado) y marcador de cada evento
+ * de una clave de deporte, vía `/scores` — un endpoint aparte del de cuotas.
+ * Es deliberadamente best-effort: si falla, los partidos de esa clave se
+ * construyen igual mediante `/odds`, solo que sin `estado` ni `marcadorReal`
+ * (nunca se asume "no iniciado" sin haberlo confirmado).
+ */
+async function obtenerEstados(clavesDeporte: string[]): Promise<Map<string, EstadoPartidoReal>> {
+  const mapa = new Map<string, EstadoPartidoReal>();
+  for (const clave of clavesDeporte) {
+    try {
+      const { datos } = await pedir<EstadoAPI[]>(`/sports/${clave}/scores/?daysFrom=1`);
+      for (const evento of datos) {
+        const yaEmpezo = new Date(evento.commence_time).getTime() <= Date.now();
+        mapa.set(evento.id, {
+          estado: evento.completed ? "finalizado" : yaEmpezo ? "en_vivo" : "no_iniciado",
+          scores: evento.scores ?? undefined,
+        });
+      }
+    } catch {
+      // Sin estado real para esta clave — ver comentario de la función.
+    }
+  }
+  return mapa;
 }
 
 /**
@@ -362,7 +431,7 @@ async function resolverClaves(): Promise<Map<DisciplinaId, string[]>> {
     }
   } catch {
     // Sin lista de deportes, las disciplinas dinámicas quedan sin clave: ese
-    // hueco se resuelve más abajo cayendo a los datos locales.
+    // hueco se resuelve más abajo dejando esa disciplina sin partidos.
   }
   return mapa;
 }
@@ -380,15 +449,12 @@ function estadoSharp(): EstadoProveedor {
   };
 }
 
-function partidosLocalesDe(disciplina: DisciplinaId): Partido[] {
-  return partidosLocales.filter((p) => p.disciplina === disciplina);
-}
-
 /**
  * Construye la cartelera. Cada disciplina con cobertura se intenta en vivo por
  * separado: si una falla (sin clave resuelta, error de red, cero eventos), esa
- * disciplina concreta cae a su reserva local sin arrastrar a las demás. Las
- * disciplinas sin cobertura en la API (eSports) van siempre por local.
+ * disciplina concreta se queda sin partidos, sin arrastrar a las demás. Las
+ * disciplinas sin cobertura en la API (eSports) tampoco muestran nada — no
+ * hay reserva local en ningún caso.
  */
 export async function obtenerPartidos(): Promise<ResultadoDatos> {
   const sharp = estadoSharp();
@@ -398,8 +464,8 @@ export async function obtenerPartidos(): Promise<ResultadoDatos> {
 
   if (!hayClaveOdds()) {
     return {
-      partidos: partidosLocales,
-      origen: "local",
+      partidos: [],
+      origen: "sin-datos",
       motivo: "No hay ODDS_API_KEY configurada",
       lecturasEnriquecidas: 0,
       partidosEnVivo: 0,
@@ -408,7 +474,7 @@ export async function obtenerPartidos(): Promise<ResultadoDatos> {
         sharp,
       ],
       porDisciplina: [
-        ...DISCIPLINAS_CON_API.map((d) => ({ disciplina: d, fuente: "local" as const, motivo: "Sin clave" })),
+        ...DISCIPLINAS_CON_API.map((d) => ({ disciplina: d, fuente: "sin-datos" as const, motivo: "Sin clave" })),
         ...sinApiCobertura.map((d) => ({ disciplina: d, fuente: "sin-cobertura" as const })),
       ],
     };
@@ -423,8 +489,7 @@ export async function obtenerPartidos(): Promise<ResultadoDatos> {
   for (const disciplina of DISCIPLINAS_CON_API) {
     const clavesDeporte = claves.get(disciplina);
     if (!clavesDeporte || clavesDeporte.length === 0) {
-      porDisciplina.push({ disciplina, fuente: "local", motivo: "No se resolvió la clave del torneo" });
-      partidos.push(...partidosLocalesDe(disciplina));
+      porDisciplina.push({ disciplina, fuente: "sin-datos", motivo: "No se resolvió la clave del torneo" });
       continue;
     }
 
@@ -438,18 +503,21 @@ export async function obtenerPartidos(): Promise<ResultadoDatos> {
         if (Array.isArray(datos)) eventos.push(...datos);
       }
 
+      // Best-effort: si esta llamada falla, los partidos de abajo se
+      // construyen igual, solo que sin estado/marcador real.
+      const estadosReales = await obtenerEstados(clavesDeporte);
+
       // Se ordena por el instante real del evento, no por la hora ya
       // formateada como texto: comparar "09:00" contra "23:00" perdería la
       // fecha y mezclaría partidos de días distintos.
       const construidos = eventos
         .slice()
         .sort((a, b) => a.commence_time.localeCompare(b.commence_time))
-        .map((e) => aPartido(e, disciplina))
+        .map((e) => aPartido(e, disciplina, estadosReales.get(e.id)))
         .filter((p): p is Partido => p !== null);
 
       if (construidos.length === 0) {
-        porDisciplina.push({ disciplina, fuente: "local", eventos: 0, motivo: "La API no devolvió eventos" });
-        partidos.push(...partidosLocalesDe(disciplina));
+        porDisciplina.push({ disciplina, fuente: "sin-datos", eventos: 0, motivo: "La API no devolvió eventos" });
       } else {
         porDisciplina.push({ disciplina, fuente: "vivo", eventos: construidos.length });
         partidos.push(...construidos);
@@ -457,38 +525,34 @@ export async function obtenerPartidos(): Promise<ResultadoDatos> {
     } catch (error) {
       const motivo = error instanceof ErrorAPI ? error.message : "No se pudo contactar con la API";
       fallosGlobales.push(`${disciplina}: ${motivo}`);
-      porDisciplina.push({ disciplina, fuente: "local", motivo });
-      partidos.push(...partidosLocalesDe(disciplina));
+      porDisciplina.push({ disciplina, fuente: "sin-datos", motivo });
     }
   }
 
   for (const disciplina of sinApiCobertura) {
     porDisciplina.push({ disciplina, fuente: "sin-cobertura" });
-    partidos.push(...partidosLocalesDe(disciplina));
   }
 
   const enVivo = porDisciplina.filter((d) => d.fuente === "vivo");
-  const lecturasEnriquecidas = partidos
-    .filter((p) => porDisciplina.find((d) => d.disciplina === p.disciplina)?.fuente === "vivo")
-    .reduce((suma, p) => suma + p.lecturas.filter((l) => l.cuotaMercado).length, 0);
-  const partidosEnVivo = partidos.filter(
-    (p) => porDisciplina.find((d) => d.disciplina === p.disciplina)?.fuente === "vivo",
-  ).length;
+  const lecturasEnriquecidas = partidos.reduce(
+    (suma, p) => suma + p.lecturas.filter((l) => l.cuotaMercado).length,
+    0,
+  );
 
   return {
     partidos,
     // "api" en cuanto al menos una disciplina se construyó en vivo; si TODAS
-    // cayeron a local (incluida cada una con su propio motivo), es "local".
-    origen: enVivo.length > 0 ? "api" : "local",
+    // se quedaron sin datos, se refleja como tal en vez de como "local".
+    origen: enVivo.length > 0 ? "api" : "sin-datos",
     motivo: fallosGlobales.length > 0 ? fallosGlobales.join("; ") : undefined,
     peticionesRestantes: restantes,
     lecturasEnriquecidas,
-    partidosEnVivo,
+    partidosEnVivo: partidos.length,
     proveedores: [
       {
         nombre: "The Odds API",
         estado: enVivo.length > 0 ? "ok" : fallosGlobales.length > 0 ? "error" : "sin-datos",
-        detalle: `${enVivo.length}/${DISCIPLINAS_CON_API.length} disciplinas en vivo, ${partidosEnVivo} partidos`,
+        detalle: `${enVivo.length}/${DISCIPLINAS_CON_API.length} disciplinas en vivo, ${partidos.length} partidos`,
       },
       sharp,
     ],

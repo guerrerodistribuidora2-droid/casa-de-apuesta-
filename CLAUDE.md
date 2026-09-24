@@ -87,21 +87,40 @@ pasos de despliegue: ver `DESPLIEGUE.md`.
 **Cambio de arquitectura importante:** hasta una versión anterior, la cartelera
 era la lista simulada de `data/mockData.ts` y la API solo le pegaba una cuota
 real cuando el par de equipos coincidía por casualidad con el calendario real
-(en la práctica, ~1 de cada 19 partidos). Ahora la cartelera **se construye
-directamente** desde eventos reales de la API, disciplina por disciplina.
-`data/mockData.ts` pasó de ser la fuente principal a ser la **reserva**: solo
-se usa cuando una disciplina concreta no se pudo obtener en vivo.
+(en la práctica, ~1 de cada 19 partidos). Después pasó a construirse
+directamente desde eventos reales, con `data/mockData.ts` como **reserva**
+para la disciplina que no se pudiera obtener en vivo.
 
-- **Esta capa nunca lanza**, y ahora degrada por disciplina, no en bloque: si
-  NBA falla pero Premier League responde, NBA cae a su reserva local y Premier
+**Esa reserva ya no existe.** Desde la integración de PitchAPI se decidió
+eliminar por completo cualquier dato simulado de la vista principal: una
+disciplina sin eventos, sin clave, o sin cuota restante en el plan
+simplemente no aparece — no se completa con `data/mockData.ts` ni con nada
+inventado. El tipo `Partido` sigue viviendo ahí (y el array `partidos` sigue
+existiendo como valor por defecto en las firmas de `lib/analista.ts`, sin uso
+real en producción), pero `lib/apiConnector.ts` ya no lo importa.
+
+- **Esta capa nunca lanza**, y degrada por disciplina, no en bloque: si NBA
+  falla pero Premier League responde, NBA se queda sin partidos y Premier
   League sigue en vivo. Cada disciplina lleva su propio `EstadoDisciplina`
-  (`vivo` / `local` / `sin-cobertura`), visible en el pie del tablero.
+  (`vivo` / `sin-datos` / `sin-cobertura`), visible en el pie del tablero.
+- **Estado real y marcador:** además de `/odds`, cada disciplina pide
+  `/sports/{clave}/scores/?daysFrom=1` para resolver `estado`
+  (`no_iniciado`/`en_vivo`/`finalizado`) y `marcadorReal` por partido — el
+  mismo `id` de evento identifica al partido en ambos endpoints. Esto **duplica
+  el costo en cuota** respecto a solo pedir cuotas (ver `DESPLIEGUE.md` §3):
+  dos peticiones por disciplina y ciclo de caché, no una.
 - **Cobertura real ahora mismo:** Liga MX, Premier League, Champions League,
   NBA, UFC y tenis se construyen en vivo — las seis tienen cobertura confirmada
   en The Odds API (probado con datos reales: 138 partidos, 703 mercados en una
   sola carga). **LoL y Valorant no tienen cobertura en esta API** — no es un
-  hueco de la integración, el proveedor simplemente no cubre eSports — y
-  siguen sirviéndose desde local, marcados `sin-cobertura` sin más.
+  hueco de la integración, el proveedor simplemente no cubre eSports — y ya no
+  aparecen en el tablero en absoluto, marcadas `sin-cobertura` en el pie.
+- **La cuenta de desarrollo llegó a agotar los 500/mes** (`OUT_OF_USAGE_CREDITS`,
+  devuelto como 401 — `pedir()` en `lib/apiConnector.ts` distingue este caso de
+  una clave inválida leyendo el cuerpo de la respuesta, no solo el código de
+  estado). Mientras dure, el tablero se ve vacío en producción para las seis
+  disciplinas: es el comportamiento correcto de esta arquitectura sin reserva,
+  no un bug.
 - **Se probó `RIOT_API_KEY` para cerrar ese hueco y no sirve, verificado con la
   clave real:** `TOURNAMENT-V5` y `VAL-MATCH-V1` devuelven `403 Forbidden`
   (piden aprobación de producto que una clave personal no trae), y aunque la

@@ -8,9 +8,11 @@ import { hayClavePitchAPI, obtenerRendimientoHistorico } from "@/lib/pitchapi";
 import { registrarFactoresNoticia } from "@/lib/supabase";
 
 /**
- * Componente de servidor: pide los partidos al adaptador (que cae a los datos
- * locales si la API no responde) y puntúa todas las lecturas durante el
- * prerender. `Tablero` solo recibe el resultado y lo filtra en el navegador.
+ * Componente de servidor: pide los partidos al adaptador y puntúa todas las
+ * lecturas durante el prerender. Sin reserva local: si la API no responde,
+ * `fuente.partidos` viene vacío y así se muestra — `Tablero` oculta cualquier
+ * sección sin partidos. `Tablero` solo recibe el resultado y lo filtra en el
+ * navegador.
  */
 export default async function Dashboard() {
   const fuente = await obtenerPartidos();
@@ -74,7 +76,7 @@ export default async function Dashboard() {
         <div className="flex flex-wrap items-baseline gap-x-5 gap-y-1">
           <p className="cifra">
             <span className="text-tiza-media">
-              {fuente.origen === "api" ? "Cartelera en vivo" : "Datos locales"}
+              {fuente.origen === "api" ? "Cartelera en vivo" : "Sin datos reales ahora mismo"}
             </span>
             {fuente.origen === "api" &&
               ` · ${fuente.partidosEnVivo} ${fuente.partidosEnVivo === 1 ? "partido real" : "partidos reales"}, ${fuente.lecturasEnriquecidas} ${fuente.lecturasEnriquecidas === 1 ? "mercado" : "mercados"} con cuota real`}
@@ -121,7 +123,7 @@ export default async function Dashboard() {
                   ? `en vivo (${d.eventos})`
                   : d.fuente === "sin-cobertura"
                     ? "sin cobertura de API"
-                    : `local${d.motivo ? ` — ${d.motivo}` : ""}`}
+                    : `sin datos${d.motivo ? ` — ${d.motivo}` : ""}`}
               </span>
             </p>
           ))}
@@ -130,19 +132,19 @@ export default async function Dashboard() {
         <p className="mt-2 max-w-[80ch]">
           {fuente.origen === "api" ? (
             <>
-              Los partidos marcados <span className="text-jade">en vivo</span> son reales:
-              equipos, fecha y cuota vienen de The Odds API. Ese precio real es lo único que
-              respalda la probabilidad — todavía no tienen historial de frecuencia propio ni
-              factores de árbitro o calendario medidos, así que el motor los trata sin
-              penalizarlos ni premiarlos por esa ausencia. Los marcados{" "}
-              <span className="text-ambar">local</span> son simulados, igual que antes: la
-              disciplina no tenía eventos disponibles en este momento. eSports no tiene
-              cobertura en esta API y siempre es simulado.
+              Todo lo que ves aquí es real: equipos, fecha y cuota vienen de The Odds API,
+              y el estado (<span className="text-jade">en vivo</span>, finalizado o por
+              jugarse) del endpoint de marcadores de la misma API. Ese precio real es lo
+              único que respalda la probabilidad — todavía no hay historial de frecuencia
+              propio ni factores de árbitro o calendario medidos, así que el motor los
+              trata sin penalizarlos ni premiarlos por esa ausencia. Ninguna disciplina se
+              completa con datos inventados: las que no tienen eventos disponibles ahora
+              mismo, o no tienen cobertura en esta API (eSports), simplemente no aparecen.
             </>
           ) : (
             <>
-              Datos simulados para maquetar la interfaz. Ninguna cifra corresponde a un
-              registro real.
+              No hay datos reales disponibles ahora mismo (sin clave configurada, o The
+              Odds API no respondió) y no se muestra ningún partido inventado en su lugar.
             </>
           )}{" "}
           Nada de lo que aparece aquí es una recomendación para apostar.

@@ -12,7 +12,6 @@ import type { RendimientoHistorico } from "@/lib/pitchapi";
 import AnalistaIA from "./AnalistaIA";
 import FiltroDisciplinas from "./FiltroDisciplinas";
 import GestorBanca from "./GestorBanca";
-import SeccionEnVivo from "./SeccionEnVivo";
 import TarjetaPartido from "./TarjetaPartido";
 
 const TODAS = disciplinas.map((d) => d.id);
@@ -64,8 +63,6 @@ export default function Tablero({
       <FiltroDisciplinas activo={filtro} onCambio={setFiltro} conteos={conteos} />
 
       <div className="pt-8">
-        <SeccionEnVivo disciplinas={ids} />
-
         <AnalistaIA picks={picks} alcance={alcances[filtro]} />
 
         <GestorBanca picks={picks} />

@@ -232,6 +232,14 @@ export interface Partido {
   /** Factores cualitativos del encuentro. Opcional: no todo partido trae noticia. */
   contexto?: Contexto[];
   destacado?: boolean;
+  /**
+   * Estado real del encuentro, resuelto contra el endpoint `/scores` de The
+   * Odds API. Sin resolver (falló la petición o no hay clave): queda `undefined`,
+   * no se asume "no iniciado" a ciegas.
+   */
+  estado?: "no_iniciado" | "en_vivo" | "finalizado";
+  /** Marcador real, solo cuando `estado` se pudo resolver y la API ya lo reportó. */
+  marcadorReal?: { local: number; visitante: number };
 }
 
 /** Agrupación de disciplinas para la barra de filtros del tablero. */
