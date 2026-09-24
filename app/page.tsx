@@ -4,6 +4,7 @@ import { buscarDisciplina } from "@/data/mockData";
 import { alcancePorFiltro, recomendaciones } from "@/lib/analista";
 import { obtenerPartidos } from "@/lib/apiConnector";
 import { fusionar, obtenerNoticias } from "@/lib/noticias";
+import { hayClavePitchAPI, obtenerRendimientoHistorico } from "@/lib/pitchapi";
 import { registrarFactoresNoticia } from "@/lib/supabase";
 
 /**
@@ -27,6 +28,11 @@ export default async function Dashboard() {
   if (factoresDetectados.length > 0) {
     after(() => registrarFactoresNoticia(factoresDetectados));
   }
+
+  // Contexto histórico real de PitchAPI (VAEP, PPDA, heatmaps del último
+  // enfrentamiento ya jugado). Sin PITCHAPI_API_KEY, sale un mapa vacío al
+  // instante y ninguna tarjeta muestra el panel — nunca bloquea la página.
+  const rendimientoHistorico = await obtenerRendimientoHistorico(partidos);
 
   const resumen = {
     partidos: partidos.length,
@@ -60,6 +66,7 @@ export default async function Dashboard() {
           partidos={partidos}
           recomendaciones={recomendadas}
           alcances={alcances}
+          rendimientoHistorico={rendimientoHistorico}
         />
       </main>
 
@@ -86,6 +93,12 @@ export default async function Dashboard() {
             {noticias.diagnostico.feedsTotales} feeds,{" "}
             {noticias.diagnostico.titularesLeidos} titulares,{" "}
             {noticias.diagnostico.contextosGenerados} factores
+          </p>
+          <p className="cifra">
+            PitchAPI:{" "}
+            {hayClavePitchAPI()
+              ? `${rendimientoHistorico.size} partido${rendimientoHistorico.size === 1 ? "" : "s"} con contexto histórico real`
+              : "sin clave"}
           </p>
         </div>
 

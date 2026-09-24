@@ -8,6 +8,7 @@ import {
   type Partido,
 } from "@/data/mockData";
 import type { Alcance, Recomendacion } from "@/lib/analista";
+import type { RendimientoHistorico } from "@/lib/pitchapi";
 import AnalistaIA from "./AnalistaIA";
 import FiltroDisciplinas from "./FiltroDisciplinas";
 import GestorBanca from "./GestorBanca";
@@ -31,10 +32,13 @@ export default function Tablero({
   partidos,
   recomendaciones,
   alcances,
+  rendimientoHistorico,
 }: {
   partidos: Partido[];
   recomendaciones: Recomendacion[];
   alcances: Record<string, Alcance>;
+  /** Contexto histórico de PitchAPI por id de partido; ausente cuando no hay clave o no se resolvió. */
+  rendimientoHistorico?: Map<string, RendimientoHistorico>;
 }) {
   const [filtro, setFiltro] = useState("todos");
 
@@ -92,7 +96,11 @@ export default function Tablero({
 
               <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
                 {suyos.map((partido) => (
-                  <TarjetaPartido key={partido.id} partido={partido} />
+                  <TarjetaPartido
+                    key={partido.id}
+                    partido={partido}
+                    rendimientoHistorico={rendimientoHistorico?.get(partido.id)}
+                  />
                 ))}
               </div>
             </section>

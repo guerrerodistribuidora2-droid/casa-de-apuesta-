@@ -5,8 +5,10 @@ import {
   rachaActual,
   type Partido,
 } from "@/data/mockData";
+import type { RendimientoHistorico } from "@/lib/pitchapi";
 import MedidorProbabilidad from "./MedidorProbabilidad";
 import NotasContexto from "./NotasContexto";
+import PanelRendimientoAvanzado from "./PanelRendimientoAvanzado";
 import SelloFuerza from "./SelloFuerza";
 import TiraForma from "./TiraForma";
 import TiraFrecuencia from "./TiraFrecuencia";
@@ -23,7 +25,14 @@ function describirRacha({ largo, cumplida }: ReturnType<typeof rachaActual>): st
   return largo === 1 ? "No se cumplió la última vez" : `Lleva ${largo} sin cumplirse`;
 }
 
-export default function TarjetaPartido({ partido }: { partido: Partido }) {
+export default function TarjetaPartido({
+  partido,
+  rendimientoHistorico,
+}: {
+  partido: Partido;
+  /** Solo llega cuando PitchAPI resolvió un enfrentamiento real ya jugado entre estos dos equipos. */
+  rendimientoHistorico?: RendimientoHistorico;
+}) {
   const disciplina = buscarDisciplina(partido.disciplina);
   const lectura = lecturaPrincipal(partido);
   const racha = rachaActual(lectura.historial);
@@ -96,6 +105,8 @@ export default function TarjetaPartido({ partido }: { partido: Partido }) {
             <NotasContexto partido={partido} lectura={lectura} limite={1} compacto />
           </div>
         )}
+
+        {rendimientoHistorico && <PanelRendimientoAvanzado rendimiento={rendimientoHistorico} />}
 
         <div className="mt-2 flex items-baseline justify-between gap-3 text-[12px] text-tiza-tenue">
           <p className="cifra">{describirRacha(racha)}</p>
